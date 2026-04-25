@@ -7,3 +7,4 @@ tiktoken
 python-dotenv
 langchain-ollama
 langchain-community
+langchain-text-splitters
