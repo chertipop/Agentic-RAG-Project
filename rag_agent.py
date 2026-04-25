@@ -1,6 +1,7 @@
 from langchain_community.chat_models import ChatOllama
 from langchain_community.embeddings import OllamaEmbeddings
 from langchain_community.vectorstores import FAISS
+from langchain_ollama import OllamaEmbeddings, ChatOllama
 
 class RAGAgent:
     def __init__(self):
@@ -11,8 +12,8 @@ class RAGAgent:
         # split
         chunks = [text[i:i+500] for i in range(0, len(text), 500)]
 
-        # embeddings (ใช้ local)
-        embeddings = OllamaEmbeddings(model="llama3")
+        # embeddings
+        embeddings = OllamaEmbeddings(model="nomic-embed-text")
 
         # vector db
         self.vectorstore = FAISS.from_texts(chunks, embeddings)
@@ -25,9 +26,13 @@ class RAGAgent:
         docs = self.vectorstore.similarity_search(query, k=3)
         context = "\n".join([doc.page_content for doc in docs])
 
-        # prompt
         prompt = f"""
-        Answer the question based on the context below:
+        Answer the question based only on the context below.
+
+        Explain clearly and naturally in English.
+        Do not repeat the same sentence directly from the context.
+        Summarize in your own words.
+        If the answer is not found in the context, say: "I could not find the answer in the provided context."
 
         Context:
         {context}

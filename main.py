@@ -15,3 +15,11 @@ class Query(BaseModel):
 def search(query: Query):
     result = agent.run(query.question)
     return result
+
+@app.get("/")
+def root():
+    return {"message": "Agentic RAG API is running"}
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}

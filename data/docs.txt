@@ -1,5 +1,13 @@
 Artificial Intelligence (AI) is transforming industries by automating tasks and improving efficiency.
 
-Machine learning is a subset of AI that focuses on learning from data.
+Machine learning is a subset of AI that focuses on learning from data and improving performance over time.
 
-Future trends of AI include automation, job transformation, and human-AI collaboration.
+Deep learning is a subset of machine learning that uses neural networks with many layers.
+
+AI is used in healthcare, finance, education, customer service, manufacturing, and transportation.
+
+Benefits of AI include automation, faster decision-making, personalization, and cost reduction.
+
+Risks of AI include bias, data privacy concerns, job displacement, and overreliance on automated systems.
+
+Future trends of AI include human-AI collaboration, responsible AI, automation, and job transformation.
