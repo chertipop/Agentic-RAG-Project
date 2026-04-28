@@ -1,20 +1,36 @@
+import os
+
 from langchain_community.vectorstores import FAISS
+from langchain_community.document_loaders import TextLoader, PyPDFLoader
 from langchain_ollama import OllamaEmbeddings, ChatOllama
 from langchain_text_splitters import CharacterTextSplitter
 
+
 class RAGAgent:
     def __init__(self):
-        with open("data/docs.txt", "r", encoding="utf-8") as f:
-            text = f.read()
+        documents = []
+        data_folder = "data"
+
+        for file_name in os.listdir(data_folder):
+            file_path = os.path.join(data_folder, file_name)
+
+            if file_name.endswith(".txt"):
+                loader = TextLoader(file_path, encoding="utf-8")
+                documents.extend(loader.load())
+
+            elif file_name.endswith(".pdf"):
+                loader = PyPDFLoader(file_path)
+                documents.extend(loader.load())
 
         splitter = CharacterTextSplitter(
-            chunk_size=500,
-            chunk_overlap=50
+            chunk_size=1500,
+            chunk_overlap=300
         )
-        chunks = splitter.split_text(text)
+
+        chunks = splitter.split_documents(documents)
 
         embeddings = OllamaEmbeddings(model="nomic-embed-text")
-        self.vectorstore = FAISS.from_texts(chunks, embeddings)
+        self.vectorstore = FAISS.from_documents(chunks, embeddings)
 
         self.llm = ChatOllama(
             model="llama3",
@@ -75,12 +91,10 @@ Rules:
 - Answer clearly in English.
 - Use only the provided context.
 - Do not make up information.
+- Do not use markdown bullets.
+- Write the answer in normal sentences.
 - If the answer is not found in the context, say:
   "I could not find the answer in the provided context."
-- If task type is summary, summarize the key ideas.
-- If task type is compare, compare the relevant concepts clearly.
-- If task type is risk, focus on risks or limitations.
-- If task type is future, focus on future trends.
 
 Context:
 {context}
@@ -108,5 +122,5 @@ Answer:
         return {
             "intent": intent,
             "answer": answer,
-            "sources": [doc.page_content for doc in docs]
+            "sources": [docs[0].page_content] if docs else []
         }
