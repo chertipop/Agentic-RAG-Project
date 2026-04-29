@@ -1,4 +1,5 @@
 import os
+from collections import OrderedDict
 
 from langchain_community.vectorstores import FAISS
 from langchain_community.document_loaders import TextLoader, PyPDFLoader
@@ -8,119 +9,115 @@ from langchain_text_splitters import CharacterTextSplitter
 
 class RAGAgent:
     def __init__(self):
-        documents = []
+        self.cache = OrderedDict()
+        self.cache_limit = 50
+
         data_folder = "data"
+        documents = []
 
-        for file_name in os.listdir(data_folder):
-            file_path = os.path.join(data_folder, file_name)
+        if os.path.exists(data_folder):
+            for file_name in os.listdir(data_folder):
+                file_path = os.path.join(data_folder, file_name)
 
-            if file_name.endswith(".txt"):
-                loader = TextLoader(file_path, encoding="utf-8")
-                documents.extend(loader.load())
+                if file_name.endswith(".txt"):
+                    loader = TextLoader(file_path, encoding="utf-8")
+                    documents.extend(loader.load())
 
-            elif file_name.endswith(".pdf"):
-                loader = PyPDFLoader(file_path)
-                documents.extend(loader.load())
+                elif file_name.endswith(".pdf"):
+                    loader = PyPDFLoader(file_path)
+                    documents.extend(loader.load())
 
-        splitter = CharacterTextSplitter(
-            chunk_size=1500,
-            chunk_overlap=300
+        self.splitter = CharacterTextSplitter(
+            chunk_size=800,
+            chunk_overlap=100
         )
 
-        chunks = splitter.split_documents(documents)
+        self.embeddings = OllamaEmbeddings(model="nomic-embed-text")
 
-        embeddings = OllamaEmbeddings(model="nomic-embed-text")
-        self.vectorstore = FAISS.from_documents(chunks, embeddings)
+        chunks = self.splitter.split_documents(documents)
+
+        if len(chunks) > 0:
+            self.vectorstore = FAISS.from_documents(chunks, self.embeddings)
+        else:
+            self.vectorstore = FAISS.from_texts(["init"], self.embeddings)
 
         self.llm = ChatOllama(
-            model="llama3",
+            model="phi3",
             temperature=0.2
         )
 
-    def classify_intent(self, query: str) -> str:
+    # ---------------------------
+    # 🔥 FAST ANSWER GENERATION
+    # ---------------------------
+    def generate_answer(self, query: str, context: str):
         prompt = f"""
-Classify the user's question into one of these intents:
+Answer using the context. If not found, say you don't know.
 
-1. summary - if the user asks to summarize
-2. compare - if the user asks to compare things
-3. risk - if the user asks about risks, problems, limitations, disadvantages
-4. future - if the user asks about future trends
-5. search - for general factual questions
-
-Return only one word: summary, compare, risk, future, or search.
-
-Question:
-{query}
-"""
-        response = self.llm.invoke(prompt)
-        return response.content.strip().lower()
-
-    def retrieve_context(self, query: str, intent: str):
-        if intent == "summary":
-            docs = self.vectorstore.similarity_search(query, k=5)
-
-        elif intent == "compare":
-            docs = self.vectorstore.similarity_search(query, k=5)
-
-        elif intent == "risk":
-            docs = self.vectorstore.similarity_search(
-                query + " risks problems limitations disadvantages",
-                k=4
-            )
-
-        elif intent == "future":
-            docs = self.vectorstore.similarity_search(
-                query + " future trends transformation collaboration",
-                k=4
-            )
-
-        else:
-            docs = self.vectorstore.similarity_search(query, k=3)
-
-        return docs
-
-    def generate_answer(self, query: str, context: str, intent: str):
-        prompt = f"""
-You are an Agentic RAG assistant.
-
-Your task type is: {intent}
-
-Answer the question based only on the context below.
-
-Rules:
-- Answer clearly in English.
-- Use only the provided context.
-- Do not make up information.
-- Do not use markdown bullets.
-- Write the answer in normal sentences.
-- If the answer is not found in the context, say:
-  "I could not find the answer in the provided context."
-
-Context:
 {context}
 
-Question:
-{query}
-
-Answer:
+Q: {query}
+A:
 """
         response = self.llm.invoke(prompt)
-        return response.content
+        return response.content.strip()
 
+    # ---------------------------
+    # 🔥 MAIN RUN (optimized)
+    # ---------------------------
     def run(self, query: str):
-        intent = self.classify_intent(query)
+        key = query.strip().lower()
 
-        allowed_intents = ["summary", "compare", "risk", "future", "search"]
-        if intent not in allowed_intents:
-            intent = "search"
+        # ✅ CACHE HIT
+        if key in self.cache:
+            return self.cache[key]
 
-        docs = self.retrieve_context(query, intent)
-        context = "\n\n".join([doc.page_content for doc in docs])
+        # 🔍 RETRIEVE (เร็วขึ้น)
+        docs = self.vectorstore.similarity_search(query, k=2)
 
-        answer = self.generate_answer(query, context, intent)
+        # ✂️ ลด context ให้สั้นลง
+        context = "\n".join([d.page_content[:500] for d in docs])
 
-        return {
-            "intent": intent,
+        # 🤖 GENERATE
+        answer = self.generate_answer(query, context)
+
+        result = {
+            "intent": "search",
             "answer": answer,
             "sources": [docs[0].page_content] if docs else []
         }
+
+        # 💾 SAVE CACHE (limit size)
+        self.cache[key] = result
+        if len(self.cache) > self.cache_limit:
+            self.cache.popitem(last=False)
+
+        return result
+
+    # ---------------------------
+    # 📥 INGEST NEW FILES
+    # ---------------------------
+    def ingest_files(self, file_paths):
+        new_docs = []
+
+        for path in file_paths:
+            if path.endswith(".txt"):
+                loader = TextLoader(path, encoding="utf-8")
+            elif path.endswith(".pdf"):
+                loader = PyPDFLoader(path)
+            else:
+                continue
+
+            new_docs.extend(loader.load())
+
+        if not new_docs:
+            return
+
+        chunks = self.splitter.split_documents(new_docs)
+
+        # ➕ เพิ่มเข้า vector DB
+        self.vectorstore.add_documents(chunks)
+
+        # 🔥 สำคัญมาก: clear cache
+        self.cache.clear()
+
+        print(f"✅ Indexed {len(chunks)} chunks")
